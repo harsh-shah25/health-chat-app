@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cassandra-init-scripts
+  namespace: health-app
+data:
+  init.sh: |
+    #!/bin/bash
+
+    echo "⏳ Waiting for Cassandra to be ready..."
+    until cqlsh cassandra 9042 -e "DESCRIBE KEYSPACES" > /dev/null 2>&1; do
+      echo "…still waiting…"
+      sleep 5
+    done
+
+    echo "✅ Cassandra is up, creating keyspace and tables"
+    cqlsh cassandra 9042 -e "
+    CREATE KEYSPACE IF NOT EXISTS messaging WITH replication = {
+      'class': 'SimpleStrategy',
+      'replication_factor': 1
+    };
+
+    USE messaging;
+
+    CREATE TABLE IF NOT EXISTS messages (
+      conversation_id TEXT,
+      timestamp TIMESTAMP,
+      message_id UUID,
+      sender TEXT,
+      receiver TEXT,
+      content TEXT,
+      PRIMARY KEY (conversation_id, timestamp)
+    );
+
+    CREATE TABLE IF NOT EXISTS user_conversations (
+      user_id TEXT,
+      conversation_id UUID,
+      other_user_id TEXT,
+      last_message_time TIMESTAMP,
+      PRIMARY KEY (user_id, conversation_id)
+    );
+    "

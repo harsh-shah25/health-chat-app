@@ -1,0 +1,42 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+  namespace: health-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: notification-service
+  template:
+    metadata:
+      labels:
+        app: notification-service
+    spec:
+      containers:
+        - name: notification-service
+          image: shahharsh25/notification-service:latest
+          ports:
+            - containerPort: 8086
+          env:
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              value: "kafka:9092"
+          envFrom:
+            - configMapRef:
+                name: notification-service-config-tfffgc8mt5
+          # Removed readiness and liveness probes
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification-service
+  namespace: health-app
+spec:
+  selector:
+    app: notification-service
+  ports:
+    - name: http
+      port: 8086
+      targetPort: 8086
+  type: ClusterIP

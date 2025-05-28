@@ -1,0 +1,2 @@
+k8s_env: dev
+kustomize_overlay_path: ../k8s/overlays/dev

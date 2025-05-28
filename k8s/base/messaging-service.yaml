@@ -1,0 +1,48 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: messaging-service
+  namespace: health-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: messaging-service
+  template:
+    metadata:
+      labels:
+        app: messaging-service
+    spec:
+      containers:
+        - name: messaging-service
+          image: shahharsh25/messaging-service:latest
+          ports:
+            - containerPort: 8082
+          env:
+            - name: SPRING_DATA_CASSANDRA_CONTACT_POINTS
+              value: "cassandra"
+            - name: SPRING_DATA_CASSANDRA_PORT
+              value: "9042"
+            - name: SPRING_DATA_CASSANDRA_KEYSPACE_NAME
+              value: "messaging"
+            - name: SPRING_DATA_CASSANDRA_LOCAL_DATACENTER
+              value: "datacenter1"
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              value: "kafka:9092"
+          # - configMapRef:
+          #     name: messaging-service-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: messaging-service
+  namespace: health-app
+spec:
+  selector:
+    app: messaging-service
+  ports:
+    - name: http
+      port: 8082
+      targetPort: 8082
+  type: ClusterIP

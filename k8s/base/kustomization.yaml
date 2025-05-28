@@ -1,0 +1,73 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: health-app
+
+resources:
+  - auth-service.yaml
+  - appointment-service.yaml
+  - messaging-service.yaml
+  - groupchat-service.yaml
+  - notification-service.yaml
+  - apigateway-service.yaml
+  - cassandra-service.yaml
+  - cassandra-statefulset.yaml
+  - cassandra-init-configmap.yaml
+  # - keyspace-job.yaml
+  - redis-deployment.yaml
+  - redis-service.yaml
+  - mysql-service.yaml
+  - mysql-statefulset.yaml
+  - kafka-service.yaml
+  - kafka-statefulset.yaml
+  - zookeper-service.yaml
+  - zookeper-deployment.yaml
+  - api-gateway-ingress.yaml
+  - cassandra-init.yaml
+
+# ConfigMap generators for services
+configMapGenerator:
+  - name: api-gateway-config
+    files:
+      - application.properties=gateway-routes.properties
+      
+  - name: auth-service-config
+    literals:
+      - spring.datasource.url=jdbc:mysql://mysql:3306/healthapp?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      - spring.datasource.username=root
+      - spring.datasource.password=@Password!123
+
+  - name: appointment-service-config
+    literals:
+      - spring.datasource.url=jdbc:mysql://mysql:3306/healthapp?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      - spring.datasource.username=root
+      - spring.datasource.password=@Password!123
+
+  - name: messaging-service-config
+    literals:
+      - spring.data.cassandra.contact-points=cassandra
+      - spring.data.cassandra.port=9042
+      - spring.data.cassandra.keyspace-name=messaging
+      - spring.data.cassandra.local-datacenter=datacenter1
+      - spring.kafka.bootstrap-servers=kafka:9092
+      - spring.kafka.consumer.bootstrap-servers=kafka:9092
+      - spring.kafka.producer.bootstrap-servers=kafka:9092
+
+  - name: groupchat-service-config
+    literals:
+      - spring.redis.host=redis
+      - spring.redis.port=6379
+
+  - name: notification-service-config
+    literals:
+      - spring.kafka.bootstrap-servers=kafka:9092
+      - spring.kafka.consumer.bootstrap-servers=kafka:9092
+      - spring.kafka.consumer.group-id=notification-group
+
+# Secret generator for database credentials
+secretGenerator:
+  - name: mysql-credentials
+    namespace: health-app
+    literals:
+      - username=root
+      - password=@Password!123
+    type: Opaque

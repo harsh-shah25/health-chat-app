@@ -1,0 +1,151 @@
+# elasticsearch.yaml
+---
+# Service Account for Elasticsearch (optional, but good practice)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: elasticsearch
+  namespace: elastic-system
+  labels:
+    app: elasticsearch
+---
+# Headless Service for discovery within the cluster
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch-master-headless
+  namespace: elastic-system
+  labels:
+    app: elasticsearch
+spec:
+  selector:
+    app: elasticsearch
+    role: master # Assuming master nodes handle this
+  clusterIP: None # This makes it a headless service
+  ports:
+    - port: 9300
+      targetPort: 9300
+      name: transport
+---
+# Service to expose Elasticsearch (for Kibana and Filebeat)
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch-master
+  namespace: elastic-system
+  labels:
+    app: elasticsearch
+spec:
+  selector:
+    app: elasticsearch
+    role: master
+  ports:
+    - port: 9200
+      targetPort: 9200
+      name: http
+  type: ClusterIP # Only exposed within the cluster
+---
+# ConfigMap for Elasticsearch configuration
+# elasticsearch.yaml (ConfigMap section)
+---
+# ConfigMap for Elasticsearch configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: elasticsearch-config
+  namespace: elastic-system
+data:
+  elasticsearch.yml: |
+    cluster.name: elasticsearch-cluster
+    network.host: 0.0.0.0
+    # Disable security for simplicity in this example.
+    # IMPORTANT: Enable security (authentication, TLS) for production!
+    xpack.security.enabled: false
+    xpack.security.transport.ssl.enabled: false
+    xpack.security.http.ssl.enabled: false
+    # REMOVE these lines as they conflict with discovery.type: single-node
+    # discovery.seed_hosts: ["elasticsearch-master-headless"]
+    # cluster.initial_master_nodes: ["elasticsearch-master-0"]
+# StatefulSet for Elasticsearch Master Node(s)
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: elasticsearch-master
+  namespace: elastic-system
+  labels:
+    app: elasticsearch
+    role: master
+spec:
+  serviceName: elasticsearch-master-headless # Must match the headless service name
+  replicas: 1 # Start with 1. Increase for high availability (need minimum 3 for fault tolerance)
+  selector:
+    matchLabels:
+      app: elasticsearch
+      role: master
+  template:
+    metadata:
+      labels:
+        app: elasticsearch
+        role: master
+    spec:
+      serviceAccountName: elasticsearch
+      initContainers:
+        - name: fix-permissions
+          image: docker.elastic.co/elasticsearch/elasticsearch:7.17.18 # Must match ES image version
+          command: ["sh", "-c", "chown -R 1000:1000 /usr/share/elasticsearch/data"]
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: data
+              mountPath: /usr/share/elasticsearch/data
+        - name: increase-vm-max-map
+          image: docker.elastic.co/elasticsearch/elasticsearch:7.17.18 # Must match ES image version
+          command: ["sysctl", "-w", "vm.max_map_count=262144"]
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: data
+              mountPath: /usr/share/elasticsearch/data # Need a mount point, data is fine
+      containers:
+        - name: elasticsearch
+          image: docker.elastic.co/elasticsearch/elasticsearch:7.17.18 # Use a specific 7.x version matching Kibana/Filebeat
+          env:
+            - name: ES_JAVA_OPTS # Allocate JVM memory (adjust based on node resources)
+              value: "-Xms512m -Xmx512m"
+            - name: discovery.type
+              value: single-node # Use 'single-node' for 1 replica, remove for >1 replica
+            - name: ES_CLUSTER_NAME
+              value: elasticsearch-cluster
+          ports:
+            - containerPort: 9200
+              name: http
+            - containerPort: 9300
+              name: transport
+          volumeMounts:
+            - name: config
+              mountPath: /usr/share/elasticsearch/config/elasticsearch.yml
+              subPath: elasticsearch.yml
+            - name: data
+              mountPath: /usr/share/elasticsearch/data
+          resources: # Adjust resources based on your cluster capacity and load
+            limits:
+              cpu: "1000m"
+              memory: "1024Mi"
+            requests:
+              cpu: "500m"
+              memory: "1024Mi"
+      volumes:
+        - name: config
+          configMap:
+            name: elasticsearch-config
+  volumeClaimTemplates: # Persistent storage for Elasticsearch data
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        # storageClassName: "your-storage-class-name" # Uncomment and replace if not using default SC
+        resources:
+          requests:
+            storage: 1Gi # Adjust storage size as needed

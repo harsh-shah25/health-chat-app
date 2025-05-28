@@ -1,0 +1,8 @@
+- name: Deploy to Kubernetes
+  hosts: localhost
+  vars_files:
+    - ../group_vars/dev.yml
+
+  roles:
+    - ../roles/k8s_deploy
+    - ../roles/elk_stack

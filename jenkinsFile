@@ -1,0 +1,95 @@
+pipeline {
+  agent any
+
+  environment {
+    REGISTRY     = 'shahharsh25'
+    REPO         = "${REGISTRY}"
+    KUBE_CONTEXT = 'minikube'
+  }
+
+  stages {
+
+    stage('Checkout') {
+      steps {
+        checkout scm
+      }
+    }
+
+    stage('Build & Test') {
+      steps {
+        sh 'cd authservice && mvn clean package -DskipTests'
+        sh 'cd appointmentbooking && mvn clean package -DskipTests'
+        sh 'cd onetoonemessagingservice && mvn clean package -DskipTests'
+        sh 'cd groupmessagingservice && mvn clean package -DskipTests'
+        sh 'cd notificationservice && mvn clean package -DskipTests'
+        sh 'cd apigateway && mvn clean package -DskipTests'
+      }
+    }
+
+    stage('Build & Push Docker Images') {
+      steps {
+        script {
+          def services = [
+            authservice: 'auth-service',
+            appointmentbooking: 'appointment-service',
+            onetoonemessagingservice: 'messaging-service',
+            groupmessagingservice: 'groupchat-service',
+            notificationservice: 'notification-service',
+            apigateway: 'api-gateway'
+          ]
+
+          withCredentials([usernamePassword(credentialsId: 'DockerhubCred', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+            sh 'echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin'
+          }
+
+          services.each { folder, imagename ->
+            dir(folder) {
+              sh """
+                 docker build -t ${REPO}/${imagename}:latest .
+                 docker push ${REPO}/${imagename}:latest
+              """
+            }
+          }
+        }
+      }
+    }
+
+ 
+
+  stage('Deploy to Ansible') {
+      steps {
+
+        withCredentials([string(credentialsId: 'AnsibleVaultPassword', variable: 'ANSIBLE_VAULT_PW'), file(credentialsId: 'kube-config-cred', variable: 'KUBECONFIG')]) 
+        {
+            sh '''
+              #!/bin/bash -ex
+              export KUBECONFIG=${KUBECONFIG}
+
+              set +x
+              echo "$ANSIBLE_VAULT_PW" > /tmp/vault_password_file.txt
+              set -x
+
+
+              chmod 600 /tmp/vault_password_file.txt
+
+              cd ansible/
+
+              ansible-playbook playbooks/deploy.yaml \
+                -i inventory/hosts.ini \
+                --vault-password-file /tmp/vault_password_file.txt
+
+              rm /tmp/vault_password_file.txt
+            '''
+
+          }
+        }
+      }
+    }
+
+  
+
+  post {
+    success { echo '🎉 Pipeline succeeded!' }
+    failure { echo '❌ Pipeline failed.' }
+  }
+}

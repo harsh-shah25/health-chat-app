@@ -1,0 +1,43 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: groupchat-service
+  namespace: health-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: groupchat-service
+  template:
+    metadata:
+      labels:
+        app: groupchat-service
+    spec:
+      containers:
+        - name: groupchat-service
+          image: shahharsh25/groupchat-service:latest
+          ports:
+            - containerPort: 8083
+          env:
+            - name: SPRING_REDIS_HOST
+              value: "redis"
+            - name: SPRING_REDIS_PORT
+              value: "6379"
+          envFrom:
+            - configMapRef:
+                name: groupchat-service-config-tct89dt2bf
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: groupchat-service
+  namespace: health-app
+spec:
+  selector:
+    app: groupchat-service
+  ports:
+    - name: http
+      port: 8083
+      targetPort: 8083
+  type: ClusterIP

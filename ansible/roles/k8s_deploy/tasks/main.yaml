@@ -1,0 +1,23 @@
+---
+- name: Include vault variables for k8s_deploy role
+  ansible.builtin.include_vars:
+    file: vault.yaml
+
+- name: Apply main application namespace (if not exists)
+  shell: kubectl apply -f "{{ playbook_dir }}/../../k8s/namespace.yaml"
+  environment:
+    KUBECONFIG: "{{ lookup('env', 'KUBECONFIG') }}"
+
+- name: Create MySQL credentials secret
+  shell: |
+    kubectl create secret generic mysql-credentials \
+      --from-literal=username={{ mysql_username | quote }} \
+      --from-literal=password={{ mysql_password | quote }} \
+      -n health-app --dry-run=client -o yaml | kubectl apply -f -
+  environment:
+    KUBECONFIG: "{{ lookup('env', 'KUBECONFIG') }}"
+
+- name: Apply Kustomize overlay for {{ k8s_env }} environment
+  shell: kubectl apply -k "{{ playbook_dir }}/../../k8s/overlays/{{ k8s_env }}"
+  environment:
+    KUBECONFIG: "{{ lookup('env', 'KUBECONFIG') }}"

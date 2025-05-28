@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="CompilerConfiguration">
+    <annotationProcessing>
+      <profile default="true" name="Default" enabled="true" />
+      <profile name="Maven default annotation processors profile" enabled="true">
+        <sourceOutputDir name="target/generated-sources/annotations" />
+        <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
+        <outputRelativeToContentRoot value="true" />
+        <module name="apigateway" />
+        <module name="authservice" />
+        <module name="onetoonemessagingservice" />
+        <module name="groupmessagingservice" />
+        <module name="appointmentbooking" />
+        <module name="notificationservice" />
+      </profile>
+    </annotationProcessing>
+    <bytecodeTargetLevel>
+      <module name="ticksservice" target="17" />
+    </bytecodeTargetLevel>
+  </component>
+  <component name="JavacSettings">
+    <option name="ADDITIONAL_OPTIONS_OVERRIDE">
+      <module name="apigateway" options="-parameters" />
+      <module name="appointmentbooking" options="-parameters" />
+      <module name="authservice" options="-parameters" />
+      <module name="groupmessagingservice" options="-parameters" />
+      <module name="notificationservice" options="-parameters" />
+      <module name="onetoonemessagingservice" options="-parameters" />
+      <module name="ticksservice" options="-parameters" />
+    </option>
+  </component>
+</project>

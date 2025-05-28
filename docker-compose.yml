@@ -1,0 +1,185 @@
+version: "2.4"
+services:
+  api-gateway:
+    image: api-gateway
+    container_name: apigateway
+    ports:
+      - "9090:9090"
+    networks:
+      - health-net
+
+
+  cassandra:
+    image: cassandra:4.0
+    container_name: cassandra
+    ports:
+      - "9042:9042"
+    healthcheck:
+      test: [ "CMD-SHELL", "cqlsh cassandra 9042 -e \"DESCRIBE KEYSPACES\" >/dev/null 2>&1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - health-net
+
+  keyspace-init:
+    image: cassandra:4.0
+    container_name: keyspace-init
+    depends_on:
+      cassandra:
+        condition: service_healthy
+    volumes:
+      # bind‐mount *exactly* your init script into /scripts
+      - ./onetoonemessagingservice/run_clean.sh:/run_clean.sh:ro
+
+    entrypoint: [ "/run_clean.sh" ]
+    networks:
+      - health-net
+
+  auth-service:
+    image: auth-service:latest
+    container_name: auth-service
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/healthapp?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: "@Password!123"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - health-net
+
+  appointment-service:
+    image: appointment-service:latest
+    container_name: appointment-service
+    ports:
+      - "8085:8085"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/healthapp?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: "@Password!123"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - health-net
+
+
+  messaging-service:
+    image: messaging-service:latest
+    container_name: messaging-service
+    ports:
+      - "8082:8082"
+    environment:
+      - SPRING_DATA_CASSANDRA_CONTACT_POINTS=cassandra
+      - SPRING_DATA_CASSANDRA_PORT=9042
+      - SPRING_DATA_CASSANDRA_KEYSPACE_NAME=messaging
+      - SPRING_DATA_CASSANDRA_LOCAL_DATACENTER=datacenter1
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - SPRING_KAFKA_CONSUMER_BOOTSTRAP_SERVERS=kafka:9092
+      - SPRING_KAFKA_PRODUCER_BOOTSTRAP_SERVERS=kafka:9092
+    depends_on:
+      cassandra:
+        condition: service_healthy
+      keyspace-init:
+        condition: service_completed_successfully
+      kafka:
+        condition: service_started
+    networks:
+      - health-net
+
+  groupchat-service:
+    image: groupchat-service:latest
+    container_name: groupchat-service
+    ports:
+      - "8083:8083"
+    depends_on:
+      - redis
+    networks:
+      - health-net
+#    restart: on-failure
+
+
+  notification-service:
+    image: notification-service:latest
+    container_name: notification-service
+    ports:
+      - "8086:8086"
+    networks:
+      - health-net
+#    restart: on-failure
+
+
+  mysql:
+    image: mysql:8.0
+    container_name: mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: "@Password!123"
+      MYSQL_DATABASE: healthapp
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: [ "CMD", "mysqladmin" ,"ping", "-h", "localhost" ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    networks:
+      - health-net
+
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    networks:
+      - health-net
+
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.2.1
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    healthcheck:
+      test: [ "CMD-SHELL", "echo srvr | nc localhost 2181 | grep Mode" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - health-net
+
+
+
+  kafka:
+    image: confluentinc/cp-kafka:7.2.1
+    container_name: kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      # tell Kafka where Zookeeper is
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+
+      # listeners inside the Docker network & on your host
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+
+      # keep replication simple for a single-broker setup
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    networks:
+      - health-net
+
+networks:
+  health-net:
+    driver: bridge

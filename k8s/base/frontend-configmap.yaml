@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-config
+  namespace: health-app
+data:
+  REACT_APP_API_BASE_URL: "http://api-gateway.health-app.svc.cluster.local:9090" 

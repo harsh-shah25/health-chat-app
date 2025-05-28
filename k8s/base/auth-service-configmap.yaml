@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: auth-service-config
+  namespace: health-app
+data:
+  application.yml: |
+    server:
+      port: 8081
+    spring:
+      application:
+        name: auth-service
+      datasource:
+        url: jdbc:mysql://mysql:3306/healthapp?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&createDatabaseIfNotExist=true
+        username: ${SPRING_DATASOURCE_USERNAME}
+        password: ${SPRING_DATASOURCE_PASSWORD}
+      jpa:
+        hibernate:
+          ddl-auto: update
+        show-sql: true
+        properties:
+          hibernate:
+            dialect: org.hibernate.dialect.MySQL8Dialect
+            format_sql: true
+    jwt:
+      secret: your-secret-key-here-make-it-long-and-secure-in-production
+      expiration: 86400000 # 24 hours 

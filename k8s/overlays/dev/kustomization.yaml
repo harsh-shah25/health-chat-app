@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# all objects live in this namespace
+namespace: health-app
+
+# pull in the base resources
+resources:
+  - ../../base
+
+# Image tag updates
+images:
+  - name: shahharsh25/auth-service
+    newTag: latest
+  - name: shahharsh25/appointment-service
+    newTag: latest
+  - name: shahharsh25/messaging-service
+    newTag: latest
+  - name: shahharsh25/groupchat-service
+    newTag: latest
+  - name: shahharsh25/notification-service
+    newTag: latest
+  - name: shahharsh25/api-gateway
+    newTag: latest

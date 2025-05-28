@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-gateway-config
+  namespace: health-app
+data:
+  application.yml: |
+    server:
+      port: 9090
+    spring:
+      application:
+        name: api-gateway
+      cloud:
+        gateway:
+          globalcors:
+            corsConfigurations:
+              '[/**]':
+                allowedOrigins: "*"
+                allowedMethods: "*"
+                allowedHeaders: "*"
+                allowCredentials: true
+          routes:
+            - id: auth-service
+              uri: http://auth-service:8081
+              predicates:
+                - Path=/api/auth/**
+              filters:
+                - StripPrefix=1
+            - id: messaging-service
+              uri: http://messaging-service:8082
+              predicates:
+                - Path=/api/messages/**
+              filters:
+                - StripPrefix=1
+            - id: groupchat-service
+              uri: http://groupchat-service:8083
+              predicates:
+                - Path=/api/groups/**
+              filters:
+                - StripPrefix=1
+            - id: appointment-service
+              uri: http://appointment-service:8085
+              predicates:
+                - Path=/api/appointments/**
+              filters:
+                - StripPrefix=1
+            - id: notification-service
+              uri: http://notification-service:8086
+              predicates:
+                - Path=/api/notifications/**
+              filters:
+                - StripPrefix=1 

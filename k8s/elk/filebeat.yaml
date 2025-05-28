@@ -1,0 +1,226 @@
+# filebeat.yaml
+---
+# Service Account for Filebeat (needed for RBAC)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: filebeat
+  namespace: kube-system # Common place for cluster agents
+  labels:
+    app: filebeat
+    k8s-app: filebeat
+---
+# Cluster Role for Filebeat (grants permissions cluster-wide)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: filebeat
+  labels:
+    app: filebeat
+rules:
+  - apiGroups: [""] # "" indicates the core API group
+    resources:
+      - namespaces
+      - pods
+      - nodes
+    verbs:
+      - get
+      - watch
+      - list
+  - apiGroups: ["apps"] # Needed if you want metadata from Deployments/StatefulSets etc.
+    resources:
+      - replicasets
+      - deployments
+      - statefulsets
+    verbs:
+      - get
+      - list
+      - watch
+# Add more resources if needed for richer metadata (e.g., events, services)
+# - apiGroups: [""]
+#   resources:
+#   - events
+#   - services
+#   verbs:
+#   - get
+#   - list
+#   - watch
+---
+# Cluster Role Binding for Filebeat (binds the role to the service account)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: filebeat
+subjects:
+  - kind: ServiceAccount
+    name: filebeat
+    namespace: kube-system # Must match the ServiceAccount namespace
+roleRef:
+  kind: ClusterRole
+  name: filebeat
+  apiGroup: rbac.authorization.k8s.io
+---
+# ConfigMap for Filebeat configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat-config
+  namespace: kube-system # Must match the DaemonSet namespace
+  labels:
+    app: filebeat
+    k8s-app: filebeat
+data:
+  filebeat.yml: |
+    # Configure Filebeat to use the Kubernetes autodiscover provider
+    filebeat.autodiscover:
+      providers:
+        - type: kubernetes
+          node: ${NODE_NAME}
+          # Use hints to automatically configure log collection based on pod annotations
+          # Hints like co.elastic.logs/module, co.elastic.logs/fileset are possible.
+          hints.enabled: true
+          # The default_config is applied if no hints are found.
+          # We'll use templates to apply configuration only to the target namespace.
+          hints.default_config:
+            enabled: false # Disable default config for pods without hints
+
+          # Define templates to apply configuration based on conditions (like namespace)
+          templates:
+            - condition:
+                equals:
+                  kubernetes.namespace: "health-app" # <<< TARGETING THE HEALTH-APP NAMESPACE
+              config:
+                - type: container
+                  paths:
+                    # Standard Docker/containerd log path in Kubernetes
+                    - /var/log/containers/*${data.kubernetes.container.id}.log
+                  # Optional: Add multiline handling if your logs span multiple lines
+                  # multiline.pattern: '^\s+' # Example: indentations usually mean continuation
+                  # multiline.negate: true # Negate the pattern
+                  # multiline.match: after # Match after the pattern (the continuation)
+
+    # Add Kubernetes metadata to enrich log events
+    processors:
+      - add_kubernetes_metadata:
+          in_cluster: true
+      # Optional: Add cloud provider metadata if running on cloud (AWS, GCP, Azure, etc.)
+      - add_cloud_metadata: {}
+      # Optional: Add host metadata
+      - add_host_metadata: {}
+
+    # Configure the output to Elasticsearch
+    output.elasticsearch:
+      # Use the Elasticsearch Service name and namespace for in-cluster communication
+      hosts: ["elasticsearch-master.elastic-system.svc.cluster.local:9200"]
+      # Optional: If Elasticsearch has security enabled
+      # username: "elastic" # Replace with your configured username
+      # password: "changeme" # Replace with your configured password
+      # protocol: "https" # Uncomment if ES uses HTTPS
+      # ssl.verification_mode: "none" # Or "full", "certificate" depending on CA setup
+
+    # Log Filebeat's own operational logs (optional, helps debugging)
+    # logging.level: info
+    # logging.to_files: true
+    # logging.files:
+    #   path: /usr/share/filebeat/logs # Needs corresponding volume mount
+    #   name: filebeat
+    #   keepfiles: 7
+    #   permissions: 0644
+
+---
+# DaemonSet for Filebeat (runs on every node)
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: filebeat
+  namespace: kube-system # Must match ServiceAccount and ConfigMap namespace
+  labels:
+    app: filebeat
+    k8s-app: filebeat
+spec:
+  selector:
+    matchLabels:
+      k8s-app: filebeat
+  template:
+    metadata:
+      labels:
+        k8s-app: filebeat
+    spec:
+      serviceAccountName: filebeat
+      terminationGracePeriodSeconds: 30
+      # Allow Filebeat to run on control plane nodes if needed (adjust as necessary)
+      tolerations:
+        - key: node-role.kubernetes.io/master
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/control-plane # For newer Kubernetes versions
+          effect: NoSchedule
+      # hostNetwork is often required for Filebeat to access logs via hostPath
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet # Recommended when hostNetwork is true
+      containers:
+        - name: filebeat
+          image: docker.elastic.co/beats/filebeat:7.17.18 # Must match ES/Kibana version
+          args: [
+            "-c", "/etc/filebeat.yml",
+            "-e", # Output errors to standard error (useful for debugging)
+          ]
+          env:
+            - name: NODE_NAME # Required for kubernetes autodiscover provider
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          # Optional: Pass ES credentials from a secret if security is enabled
+          # - name: ES_USERNAME
+          #   valueFrom:
+          #     secretKeyRef:
+          #       name: elasticsearch-credentials
+          #       key: username
+          # - name: ES_PASSWORD
+          #   valueFrom:
+          #     secretKeyRef:
+          #       name: elasticsearch-credentials
+          #       key: password
+          securityContext:
+            runAsUser: 0 # Filebeat often needs root to read log files in /var/log
+            # If running as non-root, ensure the user ID has read access to log paths
+            # capabilities:
+            #   add: ["SYS_ADMIN"] # Example capability if specific OS calls are needed
+          resources: # Adjust based on expected log volume
+            limits:
+              memory: "200Mi"
+              cpu: "100m"
+            requests:
+              memory: "100Mi"
+              cpu: "50m"
+          volumeMounts:
+            - name: config
+              mountPath: /etc/filebeat.yml
+              readOnly: true
+              subPath: filebeat.yml # Mounts the file, not the directory
+            # Mount standard Kubernetes log paths from the host
+            - name: varlibdockercontainers
+              mountPath: /var/lib/docker/containers
+              readOnly: true
+            - name: varlog
+              mountPath: /var/log # Necessary for /var/log/containers
+              readOnly: true
+          # Optional: Mount a path for Filebeat's own logs if enabled in ConfigMap
+          # - name: filebeat-logs
+          #   mountPath: /usr/share/filebeat/logs
+      volumes:
+        - name: config
+          configMap:
+            defaultMode: 0600
+            name: filebeat-config
+        # HostPath mounts for log directories
+        - name: varlibdockercontainers
+          hostPath:
+            path: /var/lib/docker/containers
+        - name: varlog
+          hostPath:
+            path: /var/log
+      # Optional: HostPath for Filebeat's own logs
+      # - name: filebeat-logs
+      #   hostPath:
+      #     path: /var/log/filebeat # Or choose another path on the host
+      #     type: DirectoryOrCreate # Ensures the directory exists

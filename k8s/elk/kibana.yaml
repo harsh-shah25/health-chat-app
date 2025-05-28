@@ -1,0 +1,88 @@
+# kibana.yaml
+---
+# Service Account for Kibana (optional)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kibana
+  namespace: elastic-system
+  labels:
+    app: kibana
+---
+# Service to expose Kibana
+apiVersion: v1
+kind: Service
+metadata:
+  name: kibana
+  namespace: elastic-system
+  labels:
+    app: kibana
+spec:
+  selector:
+    app: kibana
+  ports:
+    - port: 5601
+      targetPort: 5601
+      name: http
+  type: ClusterIP # Use ClusterIP for internal, change to NodePort/LoadBalancer/Ingress for external access
+---
+# ConfigMap for Kibana configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kibana-config
+  namespace: elastic-system
+data:
+  kibana.yml: |
+    server.host: "0.0.0.0"
+    # Point Kibana to your Elasticsearch Service
+    elasticsearch.hosts: ["http://elasticsearch-master.elastic-system.svc.cluster.local:9200"]
+    # Disable security check for simplicity (matches ES config)
+    # IMPORTANT: Enable security (authentication, TLS) for production!
+    elasticsearch.username: "kibana_system" # Default user when security is enabled
+    elasticsearch.password: "changeme" # Change this password when security is enabled
+    xpack.security.enabled: false # Set to true if security is enabled in ES
+---
+# Deployment for Kibana
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kibana
+  namespace: elastic-system
+  labels:
+    app: kibana
+spec:
+  replicas: 1 # Adjust replicas as needed
+  selector:
+    matchLabels:
+      app: kibana
+  template:
+    metadata:
+      labels:
+        app: kibana
+    spec:
+      serviceAccountName: kibana
+      containers:
+        - name: kibana
+          image: docker.elastic.co/kibana/kibana:7.17.18 # Must match ES/Filebeat version
+          env:
+            - name: KIBANA_CLUSTER_NAME
+              value: elasticsearch-cluster # Should match ES cluster name
+          ports:
+            - containerPort: 5601
+              name: http
+          volumeMounts:
+            - name: config
+              mountPath: /usr/share/kibana/config/kibana.yml
+              subPath: kibana.yml
+          resources: # Adjust resources based on expected usage
+            limits:
+              cpu: "500m"
+              memory: "1024Mi"
+            requests:
+              cpu: "200m"
+              memory: "512Mi"
+      volumes:
+        - name: config
+          configMap:
+            name: kibana-config
